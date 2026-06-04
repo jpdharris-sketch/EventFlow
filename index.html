@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EventFlow</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="app-logo">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="2" y="3" width="18" height="16" rx="3" fill="#3b82f6"/><rect x="6" y="1" width="2" height="4" rx="1" fill="#1d4ed8"/><rect x="14" y="1" width="2" height="4" rx="1" fill="#1d4ed8"/><rect x="5" y="10" width="12" height="1.5" rx="0.75" fill="white" opacity="0.7"/><rect x="5" y="13.5" width="8" height="1.5" rx="0.75" fill="white" opacity="0.5"/></svg>
+        </span>
+        <span class="app-name">EventFlow</span>
+      </div>
+      <input type="text" id="event-name" class="event-name-input" placeholder="Event name…" />
+      <div class="topbar-actions">
+        <input type="file" id="csv-file-input" accept=".csv" />
+        <button class="btn btn-ghost" id="import-csv-btn">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1v9M4 7l3.5 3.5L11 7M2 13h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Import CSV
+        </button>
+        <button class="btn btn-primary" id="add-session-btn">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Add session
+        </button>
+      </div>
+    </header>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="view-toggle">
+        <button class="toggle-btn active" data-view="table">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="12" height="3" rx="1" fill="currentColor" opacity="0.8"/><rect x="1" y="5.5" width="12" height="3" rx="1" fill="currentColor" opacity="0.5"/><rect x="1" y="10" width="12" height="3" rx="1" fill="currentColor" opacity="0.3"/></svg>
+          Table
+        </button>
+        <button class="toggle-btn" data-view="timeline">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="8" height="2.5" rx="1" fill="currentColor" opacity="0.8"/><rect x="1" y="5.75" width="12" height="2.5" rx="1" fill="currentColor" opacity="0.5"/><rect x="1" y="9.5" width="5" height="2.5" rx="1" fill="currentColor" opacity="0.3"/></svg>
+          Timeline
+        </button>
+      </div>
+      <div class="filter-chips">
+        <button class="chip chip-all active" data-team="all">All</button>
+        <button class="chip chip-banquets" data-team="banquets">Banquets</button>
+        <button class="chip chip-av" data-team="av">Audio Visual</button>
+        <button class="chip chip-speakers" data-team="speakers">Speakers</button>
+        <button class="chip chip-content" data-team="content">Content</button>
+        <button class="chip chip-equipment" data-team="equipment">Equipment</button>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Table View -->
+      <div id="table-view" class="view active">
+        <div class="table-wrapper">
+          <table class="sessions-table">
+            <thead>
+              <tr>
+                <th class="col-time">Time</th>
+                <th class="col-duration">Duration</th>
+                <th class="col-title">Session title</th>
+                <th class="col-location">Location</th>
+                <th class="col-notes">Team notes</th>
+                <th class="col-actions"></th>
+              </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+          </table>
+          <div id="table-empty" class="empty-state hidden">No sessions match the current filter.</div>
+        </div>
+      </div>
+
+      <!-- Timeline View -->
+      <div id="timeline-view" class="view">
+        <div id="timeline-container"></div>
+        <div id="timeline-empty" class="empty-state hidden">No sessions match the current filter.</div>
+      </div>
+    </main>
+
+    <!-- Modal -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 id="modal-title">Add session</h2>
+          <button class="modal-close" id="modal-close-btn" aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <form id="session-form" class="modal-body" novalidate>
+          <input type="hidden" id="form-id" />
+          <div class="form-row">
+            <label for="form-title">Session title <span class="req">*</span></label>
+            <input type="text" id="form-title" placeholder="e.g. Opening Keynote" autocomplete="off" />
+          </div>
+          <div class="form-row-group">
+            <div class="form-row">
+              <label for="form-start-time">Start time <span class="req">*</span></label>
+              <input type="time" id="form-start-time" />
+            </div>
+            <div class="form-row">
+              <label for="form-duration">Duration (min) <span class="req">*</span></label>
+              <input type="number" id="form-duration" min="5" max="480" step="5" placeholder="60" />
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="form-location">Location</label>
+            <input type="text" id="form-location" placeholder="e.g. Main Hall" autocomplete="off" />
+          </div>
+          <div class="form-section-heading">Team notes</div>
+          <div class="form-row form-team-row">
+            <label for="form-banquets"><span class="team-dot dot-banquets"></span>Banquets</label>
+            <textarea id="form-banquets" rows="2" placeholder="Notes for banquets team…"></textarea>
+          </div>
+          <div class="form-row form-team-row">
+            <label for="form-av"><span class="team-dot dot-av"></span>Audio Visual</label>
+            <textarea id="form-av" rows="2" placeholder="Notes for AV team…"></textarea>
+          </div>
+          <div class="form-row form-team-row">
+            <label for="form-speakers"><span class="team-dot dot-speakers"></span>Speakers</label>
+            <textarea id="form-speakers" rows="2" placeholder="Notes for speakers team…"></textarea>
+          </div>
+          <div class="form-row form-team-row">
+            <label for="form-content"><span class="team-dot dot-content"></span>Content</label>
+            <textarea id="form-content" rows="2" placeholder="Notes for content team…"></textarea>
+          </div>
+          <div class="form-row form-team-row">
+            <label for="form-equipment"><span class="team-dot dot-equipment"></span>Equipment</label>
+            <textarea id="form-equipment" rows="2" placeholder="Notes for equipment team…"></textarea>
+          </div>
+          <div class="form-error hidden" id="form-error"></div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="modal-cancel-btn">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save session</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
