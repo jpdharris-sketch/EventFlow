@@ -8,9 +8,9 @@ const TEAMS = [
 ];
 
 // ── Sample data ────────────────────────────────────────────
-let sessions = [
+const SAMPLE_SESSIONS = [
   {
-    id: uid(),
+    id: 'sample-1',
     title: 'Registration',
     startTime: '08:00',
     duration: 30,
@@ -24,7 +24,7 @@ let sessions = [
     },
   },
   {
-    id: uid(),
+    id: 'sample-2',
     title: 'Opening Keynote',
     startTime: '09:00',
     duration: 60,
@@ -38,7 +38,7 @@ let sessions = [
     },
   },
   {
-    id: uid(),
+    id: 'sample-3',
     title: 'Morning Tea',
     startTime: '10:00',
     duration: 30,
@@ -52,7 +52,7 @@ let sessions = [
     },
   },
   {
-    id: uid(),
+    id: 'sample-4',
     title: 'Panel Discussion',
     startTime: '10:30',
     duration: 60,
@@ -66,13 +66,13 @@ let sessions = [
     },
   },
   {
-    id: uid(),
+    id: 'sample-5',
     title: 'Networking Lunch',
     startTime: '12:00',
     duration: 60,
     location: 'Restaurant & Garden',
     notes: {
-      banquets:  'Seated lunch: entrée at 12:15, main at 12:35, dessert at 12:50. Dietary options labelled on each plate.',
+      banquets:  'Seated lunch: entree at 12:15, main at 12:35, dessert at 12:50. Dietary options labelled on each plate.',
       av:        'Background music only. No presentations during lunch. Lower stage lighting.',
       speakers:  '',
       content:   'Networking photography — candid shots for social media. Collect speaker testimonials if possible.',
@@ -81,7 +81,33 @@ let sessions = [
   },
 ];
 
+// ── Storage ────────────────────────────────────────────────
+const STORAGE_KEY = 'eventflow_sessions';
+const EVENT_NAME_KEY = 'eventflow_event_name';
+
+function saveSessions() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+}
+
+function loadSessions() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : SAMPLE_SESSIONS;
+  } catch (e) {
+    return SAMPLE_SESSIONS;
+  }
+}
+
+function saveEventName(name) {
+  localStorage.setItem(EVENT_NAME_KEY, name);
+}
+
+function loadEventName() {
+  return localStorage.getItem(EVENT_NAME_KEY) || '';
+}
+
 // ── State ──────────────────────────────────────────────────
+let sessions = loadSessions();
 let activeView = 'table';
 let activeFilters = new Set(['all']);
 let editingId = null;
@@ -94,12 +120,6 @@ function uid() {
 function timeToMinutes(t) {
   const [h, m] = t.split(':').map(Number);
   return h * 60 + m;
-}
-
-function minutesToTime(m) {
-  const h = Math.floor(m / 60);
-  const min = m % 60;
-  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }
 
 function formatDuration(min) {
@@ -162,14 +182,14 @@ function renderTable() {
             ${teamBadgeHTML(t.key, t.label)}
             <span class="team-note-text">${esc(s.notes[t.key])}</span>
           </div>`).join('')
-      : '<span style="color:var(--subtle);font-size:13px">—</span>';
+      : '<span style="color:var(--subtle);font-size:13px">-</span>';
 
     return `
       <tr>
         <td class="td-time">${esc(s.startTime)}</td>
         <td class="td-duration">${formatDuration(s.duration)}</td>
         <td class="td-title">${esc(s.title)}</td>
-        <td class="td-location">${esc(s.location) || '<span style="color:var(--subtle)">—</span>'}</td>
+        <td class="td-location">${esc(s.location) || '<span style="color:var(--subtle)">-</span>'}</td>
         <td><div class="team-note-list">${notesHTML}</div></td>
         <td class="td-actions">
           <div class="actions-group">
@@ -198,7 +218,6 @@ function renderTimeline() {
   }
   empty.classList.add('hidden');
 
-  // Determine time range
   const allMins = list.flatMap(s => [timeToMinutes(s.startTime), timeToMinutes(s.startTime) + s.duration]);
   const minMin = Math.min(...allMins);
   const maxMin = Math.max(...allMins);
@@ -211,7 +230,6 @@ function renderTimeline() {
   const PADDING_TOP = 16;
   const totalPx = totalHours * PX_PER_HOUR + PADDING_TOP + 32;
 
-  // Time labels and grid lines (every 30 min)
   let labels = '';
   let gridlines = '';
   for (let h = startHour; h <= endHour; h++) {
@@ -228,7 +246,6 @@ function renderTimeline() {
     }
   }
 
-  // Session blocks
   let blocks = '';
   list.forEach(s => {
     const startMin = timeToMinutes(s.startTime);
@@ -334,6 +351,7 @@ function saveSession(e) {
     sessions.push({ id: uid(), title, startTime, duration, location, notes });
   }
 
+  saveSessions();
   closeModal();
   render();
 }
@@ -344,7 +362,6 @@ function parseCSV(text) {
   if (lines.length < 2) return [];
   const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
   return lines.slice(1).map(line => {
-    // Handle quoted fields
     const cols = [];
     let cur = '';
     let inQuote = false;
@@ -355,7 +372,6 @@ function parseCSV(text) {
       else { cur += ch; }
     }
     cols.push(cur);
-
     const row = {};
     headers.forEach((h, i) => { row[h] = (cols[i] ?? '').trim(); });
     return row;
@@ -379,9 +395,9 @@ function importCSV(file) {
         duration: duration || 60,
         location: row['location'] || row['venue'] || '',
         notes: {
-          banquets:  row['banquets']  || row['banquet']   || '',
+          banquets:  row['banquets']  || row['banquet']     || '',
           av:        row['av']        || row['audio_visual'] || '',
-          speakers:  row['speakers']  || row['speaker']   || '',
+          speakers:  row['speakers']  || row['speaker']     || '',
           content:   row['content']   || '',
           equipment: row['equipment'] || '',
         },
@@ -389,8 +405,9 @@ function importCSV(file) {
       imported++;
     });
     if (imported > 0) {
+      saveSessions();
       render();
-      alert(`Imported ${imported} session${imported !== 1 ? 's' : ''}.`);
+      alert(`Imported ${imported} session${imported !== 1 ? 's' : ''}. Your schedule has been saved.`);
     } else {
       alert('No valid sessions found. Check that your CSV has "title" and "time" columns.');
     }
@@ -400,7 +417,17 @@ function importCSV(file) {
 
 // ── Event wiring ───────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+
+  // Restore event name
+  const savedName = loadEventName();
+  if (savedName) document.getElementById('event-name').value = savedName;
+
   render();
+
+  // Save event name as user types
+  document.getElementById('event-name').addEventListener('input', e => {
+    saveEventName(e.target.value);
+  });
 
   // View toggle
   document.querySelector('.view-toggle').addEventListener('click', e => {
@@ -464,6 +491,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (action === 'delete') {
       if (confirm('Delete this session?')) {
         sessions = sessions.filter(s => s.id !== id);
+        saveSessions();
         render();
       }
     }
