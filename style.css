@@ -659,3 +659,124 @@ html, body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--subtle); }
+
+/* ── Home screen ─────────────────────────────────────────── */
+.home-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  height: 56px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.home-main {
+  padding: 32px 20px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.home-heading { margin-bottom: 24px; }
+.home-heading h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+}
+.home-sub { margin: 0; color: var(--muted); font-size: 14px; }
+
+.event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.event-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  cursor: pointer;
+  transition: box-shadow .15s, border-color .15s;
+  box-shadow: var(--shadow-sm);
+}
+.event-card:hover { box-shadow: var(--shadow); border-color: var(--primary); }
+
+.event-card-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.event-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+
+.event-card-type {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 99px;
+  font-weight: 500;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+}
+
+.event-card-date { font-size: 13px; color: var(--muted); }
+
+.event-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.event-card-sessions { font-size: 12px; color: var(--subtle); }
+
+.home-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 20px;
+  gap: 16px;
+  text-align: center;
+}
+.home-empty p { margin: 0; font-size: 15px; color: var(--muted); }
+.home-empty.hidden { display: none; }
+
+/* ── Modal size variants ──────────────────────────────────── */
+.modal-sm { max-width: 400px; }
+
+/* ── Date + select inputs ────────────────────────────────── */
+.form-row input[type="date"],
+.form-row select {
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+  transition: border-color .15s;
+  font-family: inherit;
+  cursor: pointer;
+}
+.form-row input[type="date"]:focus,
+.form-row select:focus { border-color: var(--primary); }

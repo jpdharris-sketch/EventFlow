@@ -1,13 +1,13 @@
-// ── Team config ────────────────────────────────────────────
+// ── Team config ─────────────────────────────────────────────
 const TEAMS = [
-  { key: 'banquets',  label: 'Banquets',     csvKey: 'banquets' },
-  { key: 'av',        label: 'Audio Visual',  csvKey: 'av'       },
-  { key: 'speakers',  label: 'Speakers',      csvKey: 'speakers' },
-  { key: 'content',   label: 'Content',       csvKey: 'content'  },
-  { key: 'equipment', label: 'Equipment',     csvKey: 'equipment'},
+  { key: 'banquets',  label: 'Banquets'    },
+  { key: 'av',        label: 'Audio Visual' },
+  { key: 'speakers',  label: 'Speakers'    },
+  { key: 'content',   label: 'Content'     },
+  { key: 'equipment', label: 'Equipment'   },
 ];
 
-// ── Sample data ────────────────────────────────────────────
+// ── Sample data ──────────────────────────────────────────────
 const SAMPLE_SESSIONS = [
   {
     id: 'sample-1',
@@ -81,38 +81,60 @@ const SAMPLE_SESSIONS = [
   },
 ];
 
-// ── Storage ────────────────────────────────────────────────
-const STORAGE_KEY = 'eventflow_sessions';
-const EVENT_NAME_KEY = 'eventflow_event_name';
+// ── Storage ──────────────────────────────────────────────────
+const EVENTS_KEY = 'eventflow_v2_events';
 
-function saveSessions() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+function sessionsKey(eventId) {
+  return `eventflow_v2_sessions_${eventId}`;
 }
 
-function loadSessions() {
+function saveEvents(evts) {
+  localStorage.setItem(EVENTS_KEY, JSON.stringify(evts));
+}
+
+function loadEvents() {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : SAMPLE_SESSIONS;
+    const saved = localStorage.getItem(EVENTS_KEY);
+    return saved ? JSON.parse(saved) : null;
   } catch (e) {
-    return SAMPLE_SESSIONS;
+    return null;
   }
 }
 
-function saveEventName(name) {
-  localStorage.setItem(EVENT_NAME_KEY, name);
+function saveCurrentSessions() {
+  if (currentEventId) {
+    localStorage.setItem(sessionsKey(currentEventId), JSON.stringify(sessions));
+  }
 }
 
-function loadEventName() {
-  return localStorage.getItem(EVENT_NAME_KEY) || '';
+function loadSessionsForEvent(eventId) {
+  try {
+    const saved = localStorage.getItem(sessionsKey(eventId));
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    return [];
+  }
 }
 
-// ── State ──────────────────────────────────────────────────
-let sessions = loadSessions();
+// ── State ────────────────────────────────────────────────────
+const storedEvents = loadEvents();
+let events;
+if (storedEvents === null) {
+  const sampleId = 'sample-event-1';
+  events = [{ id: sampleId, name: 'Annual Conference 2026', date: '2026-09-15', type: 'Conference', createdAt: new Date().toISOString() }];
+  saveEvents(events);
+  localStorage.setItem(sessionsKey(sampleId), JSON.stringify(SAMPLE_SESSIONS));
+} else {
+  events = storedEvents;
+}
+
+let currentEventId = null;
+let sessions = [];
 let activeView = 'table';
 let activeFilters = new Set(['all']);
 let editingId = null;
 
-// ── Helpers ────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────
 function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
@@ -161,7 +183,106 @@ function filteredSessions() {
   );
 }
 
-// ── Render: Table view ─────────────────────────────────────
+function formatEventDate(dateStr) {
+  if (!dateStr) return '';
+  try {
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'long', year: 'numeric',
+    });
+  } catch (e) {
+    return dateStr;
+  }
+}
+
+// ── Home screen ──────────────────────────────────────────────
+function renderHome() {
+  const grid = document.getElementById('event-cards');
+  const empty = document.getElementById('home-empty');
+
+  if (events.length === 0) {
+    grid.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  grid.innerHTML = events.map(evt => {
+    const count = loadSessionsForEvent(evt.id).length;
+    const dateStr = formatEventDate(evt.date);
+    return `
+      <div class="event-card" data-event-id="${evt.id}">
+        <div class="event-card-name">${esc(evt.name)}</div>
+        <div class="event-card-meta">
+          ${evt.type ? `<span class="event-card-type">${esc(evt.type)}</span>` : ''}
+          ${dateStr ? `<div class="event-card-date">${dateStr}</div>` : ''}
+        </div>
+        <div class="event-card-footer">
+          <span class="event-card-sessions">${count} session${count !== 1 ? 's' : ''}</span>
+          <button class="icon-btn danger" data-action="delete-event" data-event-id="${evt.id}" title="Delete event">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 4h10M5 4V2h4v2M5.5 6.5v4M8.5 6.5v4M3 4l.7 7.3A1 1 0 004.7 12h4.6a1 1 0 001-.7L11 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function showHome() {
+  currentEventId = null;
+  sessions = [];
+  document.getElementById('home-screen').classList.remove('hidden');
+  document.getElementById('schedule-screen').classList.add('hidden');
+  renderHome();
+}
+
+function openEvent(eventId) {
+  currentEventId = eventId;
+  sessions = loadSessionsForEvent(eventId);
+  const evt = events.find(e => e.id === eventId);
+  document.getElementById('event-name').value = evt?.name ?? '';
+  document.getElementById('home-screen').classList.add('hidden');
+  document.getElementById('schedule-screen').classList.remove('hidden');
+  activeView = 'table';
+  activeFilters = new Set(['all']);
+  document.querySelectorAll('.toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.view === 'table'));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'table-view'));
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.team === 'all'));
+  render();
+}
+
+// ── New event modal ──────────────────────────────────────────
+function openNewEventModal() {
+  document.getElementById('new-event-name').value = '';
+  document.getElementById('new-event-date').value = '';
+  document.getElementById('new-event-type').value = '';
+  document.getElementById('new-event-error').classList.add('hidden');
+  document.getElementById('new-event-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('new-event-name').focus(), 50);
+}
+
+function closeNewEventModal() {
+  document.getElementById('new-event-overlay').classList.add('hidden');
+}
+
+function createEvent() {
+  const name = document.getElementById('new-event-name').value.trim();
+  const date = document.getElementById('new-event-date').value;
+  const type = document.getElementById('new-event-type').value;
+
+  if (!name) {
+    const err = document.getElementById('new-event-error');
+    err.textContent = 'Event name is required.';
+    err.classList.remove('hidden');
+    return;
+  }
+
+  const newEvent = { id: uid(), name, date, type, createdAt: new Date().toISOString() };
+  events.push(newEvent);
+  saveEvents(events);
+  closeNewEventModal();
+  openEvent(newEvent.id);
+}
+
+// ── Render: Table view ───────────────────────────────────────
 function renderTable() {
   const tbody = document.getElementById('table-body');
   const empty = document.getElementById('table-empty');
@@ -205,7 +326,7 @@ function renderTable() {
   }).join('');
 }
 
-// ── Render: Timeline view ──────────────────────────────────
+// ── Render: Timeline view ────────────────────────────────────
 function renderTimeline() {
   const container = document.getElementById('timeline-container');
   const empty = document.getElementById('timeline-empty');
@@ -288,13 +409,13 @@ function renderTimeline() {
     </div>`;
 }
 
-// ── Render all ─────────────────────────────────────────────
+// ── Render ───────────────────────────────────────────────────
 function render() {
   if (activeView === 'table') renderTable();
   else renderTimeline();
 }
 
-// ── Modal ──────────────────────────────────────────────────
+// ── Session modal ────────────────────────────────────────────
 function openModal(session = null) {
   editingId = session ? session.id : null;
   document.getElementById('modal-title').textContent = session ? 'Edit session' : 'Add session';
@@ -351,12 +472,12 @@ function saveSession(e) {
     sessions.push({ id: uid(), title, startTime, duration, location, notes });
   }
 
-  saveSessions();
+  saveCurrentSessions();
   closeModal();
   render();
 }
 
-// ── CSV import ─────────────────────────────────────────────
+// ── CSV import ───────────────────────────────────────────────
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
@@ -395,17 +516,17 @@ function importCSV(file) {
         duration: duration || 60,
         location: row['location'] || row['venue'] || '',
         notes: {
-          banquets:  row['banquets']  || row['banquet']     || '',
-          av:        row['av']        || row['audio_visual'] || '',
-          speakers:  row['speakers']  || row['speaker']     || '',
-          content:   row['content']   || '',
-          equipment: row['equipment'] || '',
+          banquets:  row['banquets']  || row['banquet']      || '',
+          av:        row['av']        || row['audio_visual']  || '',
+          speakers:  row['speakers']  || row['speaker']      || '',
+          content:   row['content']                          || '',
+          equipment: row['equipment']                        || '',
         },
       });
       imported++;
     });
     if (imported > 0) {
-      saveSessions();
+      saveCurrentSessions();
       render();
       alert(`Imported ${imported} session${imported !== 1 ? 's' : ''}. Your schedule has been saved.`);
     } else {
@@ -415,18 +536,52 @@ function importCSV(file) {
   reader.readAsText(file);
 }
 
-// ── Event wiring ───────────────────────────────────────────
+// ── Event wiring ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  showHome();
 
-  // Restore event name
-  const savedName = loadEventName();
-  if (savedName) document.getElementById('event-name').value = savedName;
+  // Home — new event buttons
+  document.getElementById('new-event-btn').addEventListener('click', openNewEventModal);
+  document.getElementById('empty-new-btn').addEventListener('click', openNewEventModal);
 
-  render();
+  // Home — event card clicks (delegated)
+  document.getElementById('event-cards').addEventListener('click', e => {
+    const deleteBtn = e.target.closest('[data-action="delete-event"]');
+    if (deleteBtn) {
+      e.stopPropagation();
+      const evtId = deleteBtn.dataset.eventId;
+      const evt = events.find(ev => ev.id === evtId);
+      if (evt && confirm(`Delete "${evt.name}" and all its sessions?`)) {
+        events = events.filter(ev => ev.id !== evtId);
+        localStorage.removeItem(sessionsKey(evtId));
+        saveEvents(events);
+        renderHome();
+      }
+      return;
+    }
+    const card = e.target.closest('.event-card');
+    if (card) openEvent(card.dataset.eventId);
+  });
 
-  // Save event name as user types
+  // New event modal
+  document.getElementById('new-event-close-btn').addEventListener('click', closeNewEventModal);
+  document.getElementById('new-event-cancel-btn').addEventListener('click', closeNewEventModal);
+  document.getElementById('new-event-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('new-event-overlay')) closeNewEventModal();
+  });
+  document.getElementById('new-event-save-btn').addEventListener('click', createEvent);
+  document.getElementById('new-event-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') createEvent();
+  });
+
+  // Schedule — back button
+  document.getElementById('back-btn').addEventListener('click', showHome);
+
+  // Schedule — sync event name edits back to the events list
   document.getElementById('event-name').addEventListener('input', e => {
-    saveEventName(e.target.value);
+    if (!currentEventId) return;
+    const idx = events.findIndex(ev => ev.id === currentEventId);
+    if (idx !== -1) { events[idx].name = e.target.value; saveEvents(events); }
   });
 
   // View toggle
@@ -467,20 +622,22 @@ document.addEventListener('DOMContentLoaded', () => {
   // Add session
   document.getElementById('add-session-btn').addEventListener('click', () => openModal());
 
-  // Modal close
+  // Session modal close
   document.getElementById('modal-close-btn').addEventListener('click', closeModal);
   document.getElementById('modal-cancel-btn').addEventListener('click', closeModal);
   document.getElementById('modal-overlay').addEventListener('click', e => {
     if (e.target === document.getElementById('modal-overlay')) closeModal();
   });
+
+  // Escape closes any open modal
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') { closeModal(); closeNewEventModal(); }
   });
 
   // Form submit
   document.getElementById('session-form').addEventListener('submit', saveSession);
 
-  // Edit / Delete (delegated)
+  // Edit / Delete sessions (delegated to document)
   document.addEventListener('click', e => {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
@@ -491,7 +648,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (action === 'delete') {
       if (confirm('Delete this session?')) {
         sessions = sessions.filter(s => s.id !== id);
-        saveSessions();
+        saveCurrentSessions();
         render();
       }
     }
@@ -503,9 +660,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('csv-file-input').addEventListener('change', e => {
     const file = e.target.files[0];
-    if (file) {
-      importCSV(file);
-      e.target.value = '';
-    }
+    if (file) { importCSV(file); e.target.value = ''; }
   });
 });
