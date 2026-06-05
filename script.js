@@ -63,6 +63,12 @@ function teamBadgeHTML(teamKey, label) {
   return `<span class="team-badge badge-${teamKey}">${esc(label)}</span>`;
 }
 
+function formatTime(t) {
+  if (!t) return '';
+  const [h, m] = t.split(':').map(Number);
+  return `${String(h).padStart(2, '0')}:${String(m ?? 0).padStart(2, '0')}`;
+}
+
 function sortedSessions() {
   return [...sessions].sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
 }
@@ -448,7 +454,7 @@ function renderTable() {
 
     return `
       <tr>
-        <td class="td-time">${esc(s.startTime)}</td>
+        <td class="td-time">${formatTime(s.startTime)}</td>
         <td class="td-duration">${formatDuration(s.duration)}</td>
         <td class="td-title">${esc(s.title)}</td>
         <td class="td-location">${esc(s.location) || '<span style="color:var(--subtle)">-</span>'}</td>
@@ -517,7 +523,7 @@ function renderTimeline() {
       <div class="tl-block team-${primary}" style="top:${top}px;height:${height}px" data-id="${s.id}">
         <div class="tl-header">
           <span class="tl-title">${esc(s.title)}</span>
-          <span class="tl-meta">${esc(s.startTime)} · ${formatDuration(s.duration)}</span>
+          <span class="tl-meta">${formatTime(s.startTime)} · ${formatDuration(s.duration)}</span>
         </div>
         ${s.location ? `<div class="tl-location">${esc(s.location)}</div>` : ''}
         ${teamPills   ? `<div class="tl-teams">${teamPills}</div>` : ''}
@@ -629,7 +635,7 @@ function exportCSV() {
                    'Banquets', 'Audio Visual', 'Speakers', 'Content', 'Equipment'];
 
   const rows = list.map(s => [
-    s.startTime, s.duration, s.title, s.location,
+    formatTime(s.startTime), s.duration, s.title, s.location,
     s.notes.banquets  || '',
     s.notes.av        || '',
     s.notes.speakers  || '',
@@ -680,7 +686,7 @@ function exportPDF() {
 
     return `
       <tr>
-        <td class="pr-time">${esc(s.startTime)}</td>
+        <td class="pr-time">${formatTime(s.startTime)}</td>
         <td class="pr-dur">${formatDuration(s.duration)}</td>
         <td class="pr-title">${esc(s.title)}</td>
         <td class="pr-loc">${esc(s.location) || '<span class="pr-dash">—</span>'}</td>
