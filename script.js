@@ -89,7 +89,6 @@ async function initHomeScreen() {
   document.getElementById('schedule-screen').classList.add('hidden');
   document.getElementById('home-screen').classList.remove('hidden');
   renderHome();
-  refreshSessionCounts().catch(console.error);
 }
 
 function showHome() {
@@ -166,8 +165,8 @@ async function loadEventsFromDB() {
 
   console.log(`[loadEventsFromDB] loaded ${owned?.length ?? 0} owned, ${sharedEvents.length} shared`);
   return [
-    ...(owned || []).map(ev => ({ ...ev, isOwner: true })),
-    ...sharedEvents,
+    ...(owned || []).map(ev => ({ ...ev, isOwner: true, _sessionCount: (ev.sessions || []).length })),
+    ...sharedEvents.map(ev => ({ ...ev, _sessionCount: (ev.sessions || []).length })),
   ];
 }
 
@@ -194,44 +193,25 @@ async function deleteEventFromDB(id) {
   if (error) throw error;
 }
 
-// ── DB: sessions ─────────────────────────────────────────────
+// ── DB: sessions (stored as JSONB array in events.sessions) ──
 async function loadSessionsFromDB(eventId) {
   const { data, error } = await supabaseClient
-    .from('sessions').select('*').eq('event_id', eventId)
-    .order('created_at', { ascending: true });
-  if (error) throw error;
-  return (data || []).map(s => ({
-    id: s.id, title: s.title, startTime: s.start_time,
-    duration: s.duration, location: s.location || '', notes: s.notes || {},
-  }));
+    .from('events').select('sessions').eq('id', eventId).single();
+  if (error) {
+    console.error('[loadSessionsFromDB]', error.code, error.message);
+    throw error;
+  }
+  return data?.sessions || [];
 }
 
-async function insertSessionInDB(eventId, session) {
-  const { data, error } = await supabaseClient
-    .from('sessions')
-    .insert({
-      event_id: eventId, title: session.title, start_time: session.startTime,
-      duration: session.duration, location: session.location, notes: session.notes,
-    })
-    .select().single();
-  if (error) throw error;
-  return data.id;
-}
-
-async function updateSessionInDB(session) {
+// Single write path — always replaces the whole sessions array.
+async function saveSessionsToDB(eventId, sessionList) {
   const { error } = await supabaseClient
-    .from('sessions')
-    .update({
-      title: session.title, start_time: session.startTime,
-      duration: session.duration, location: session.location, notes: session.notes,
-    })
-    .eq('id', session.id);
-  if (error) throw error;
-}
-
-async function deleteSessionFromDB(sessionId) {
-  const { error } = await supabaseClient.from('sessions').delete().eq('id', sessionId);
-  if (error) throw error;
+    .from('events').update({ sessions: sessionList }).eq('id', eventId);
+  if (error) {
+    console.error('[saveSessionsToDB]', error.code, error.message, error.hint ?? '');
+    throw error;
+  }
 }
 
 // ── DB: shares ───────────────────────────────────────────────
@@ -302,13 +282,10 @@ function renderHome() {
   }).join('');
 }
 
-async function refreshSessionCounts() {
-  await Promise.all(events.map(async evt => {
-    const { count, error } = await supabaseClient
-      .from('sessions').select('*', { count: 'exact', head: true })
-      .eq('event_id', evt.id);
-    if (!error) evt._sessionCount = count ?? 0;
-  }));
+function refreshSessionCounts() {
+  events.forEach(evt => {
+    evt._sessionCount = (evt.sessions || []).length;
+  });
   renderHome();
 }
 
@@ -615,26 +592,129 @@ async function saveSession(e) {
   const saveBtn = document.getElementById('session-save-btn');
   saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
 
+  // Snapshot so we can roll back on error
+  const prev = [...sessions];
+
+  if (editingId) {
+    const idx = sessions.findIndex(s => s.id === editingId);
+    if (idx !== -1) sessions[idx] = { id: editingId, title, startTime, duration, location, notes };
+  } else {
+    sessions.push({ id: uid(), title, startTime, duration, location, notes });
+  }
+
   try {
-    if (editingId) {
-      const updated = { id: editingId, title, startTime, duration, location, notes };
-      await updateSessionInDB(updated);
-      const idx = sessions.findIndex(s => s.id === editingId);
-      if (idx !== -1) sessions[idx] = updated;
-    } else {
-      const newId = await insertSessionInDB(currentEventId, { title, startTime, duration, location, notes });
-      sessions.push({ id: newId, title, startTime, duration, location, notes });
-      const evtIdx = events.findIndex(e => e.id === currentEventId);
-      if (evtIdx !== -1) events[evtIdx]._sessionCount = (events[evtIdx]._sessionCount ?? 0) + 1;
+    await saveSessionsToDB(currentEventId, sessions);
+    // Sync count on the in-memory event card
+    const evtIdx = events.findIndex(e => e.id === currentEventId);
+    if (evtIdx !== -1) {
+      events[evtIdx].sessions = sessions;
+      events[evtIdx]._sessionCount = sessions.length;
     }
     closeModal();
     render();
   } catch (err) {
-    console.error(err);
-    showFormError('Failed to save session. Please try again.');
+    sessions = prev; // restore
+    showFormError(err.message || 'Failed to save session. Please try again.');
   } finally {
     saveBtn.disabled = false; saveBtn.textContent = 'Save session';
   }
+}
+
+// ── CSV export ───────────────────────────────────────────────
+function exportCSV() {
+  const evt  = events.find(e => e.id === currentEventId);
+  const list = sortedSessions();
+
+  const headers = ['Time', 'Duration (min)', 'Title', 'Location',
+                   'Banquets', 'Audio Visual', 'Speakers', 'Content', 'Equipment'];
+
+  const rows = list.map(s => [
+    s.startTime, s.duration, s.title, s.location,
+    s.notes.banquets  || '',
+    s.notes.av        || '',
+    s.notes.speakers  || '',
+    s.notes.content   || '',
+    s.notes.equipment || '',
+  ]);
+
+  const csvText = [headers, ...rows]
+    .map(row => row.map(cell => {
+      const v = String(cell ?? '');
+      return (v.includes(',') || v.includes('\n') || v.includes('"'))
+        ? '"' + v.replace(/"/g, '""') + '"'
+        : v;
+    }).join(','))
+    .join('\r\n');
+
+  const filename = (evt?.name || 'schedule')
+    .replace(/[/\\?%*:|"<>]/g, '-').trim() + '.csv';
+
+  const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── PDF export (browser print) ───────────────────────────────
+function exportPDF() {
+  const evt  = events.find(e => e.id === currentEventId);
+  const list = sortedSessions();
+
+  const meta = [formatEventDate(evt?.date), evt?.type].filter(Boolean).join(' · ');
+
+  const TEAM_LABELS = {
+    banquets: 'Banquets', av: 'Audio Visual',
+    speakers: 'Speakers', content: 'Content', equipment: 'Equipment',
+  };
+
+  const rows = list.map(s => {
+    const activeNotes = TEAMS.filter(t => s.notes[t.key]?.trim());
+    const notesHTML = activeNotes.length
+      ? activeNotes.map(t => `
+          <div class="pr-note">
+            <span class="pr-badge pr-badge-${t.key}">${TEAM_LABELS[t.key]}</span>
+            <span class="pr-note-text">${esc(s.notes[t.key])}</span>
+          </div>`).join('')
+      : '<span class="pr-dash">—</span>';
+
+    return `
+      <tr>
+        <td class="pr-time">${esc(s.startTime)}</td>
+        <td class="pr-dur">${formatDuration(s.duration)}</td>
+        <td class="pr-title">${esc(s.title)}</td>
+        <td class="pr-loc">${esc(s.location) || '<span class="pr-dash">—</span>'}</td>
+        <td class="pr-notes">${notesHTML}</td>
+      </tr>`;
+  }).join('');
+
+  const today = new Date().toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'long', year: 'numeric',
+  });
+
+  document.getElementById('print-area').innerHTML = `
+    <div class="pr-header">
+      <div class="pr-header-left">
+        <h1 class="pr-event-name">${esc(evt?.name || 'Schedule')}</h1>
+        ${meta ? `<p class="pr-event-meta">${esc(meta)}</p>` : ''}
+      </div>
+      <div class="pr-header-right">EventFlow</div>
+    </div>
+    <table class="pr-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Duration</th>
+          <th>Session</th>
+          <th>Location</th>
+          <th>Team notes</th>
+        </tr>
+      </thead>
+      <tbody>${rows || '<tr><td colspan="5" class="pr-empty">No sessions.</td></tr>'}</tbody>
+    </table>
+    <div class="pr-footer">Generated by EventFlow · ${today}</div>`;
+
+  window.print();
 }
 
 // ── CSV import ───────────────────────────────────────────────
@@ -659,39 +739,46 @@ function parseCSV(text) {
 function importCSV(file) {
   const reader = new FileReader();
   reader.onload = async e => {
-    const rows = parseCSV(e.target.result);
-    let imported = 0;
+    const rows     = parseCSV(e.target.result);
+    const incoming = [];
+
     for (const row of rows) {
       const title     = row['title']    || row['session'] || row['name'];
       const startTime = row['time']     || row['start']   || row['start_time'];
       const duration  = parseInt(row['duration'] || row['dur'] || '0', 10);
       if (!title || !startTime) continue;
-      const notes = {
-        banquets:  row['banquets']  || row['banquet']     || '',
-        av:        row['av']        || row['audio_visual'] || '',
-        speakers:  row['speakers']  || row['speaker']     || '',
-        content:   row['content']                         || '',
-        equipment: row['equipment']                       || '',
-      };
-      try {
-        const newId = await insertSessionInDB(currentEventId, {
-          title, startTime, duration: duration || 60,
-          location: row['location'] || row['venue'] || '', notes,
-        });
-        sessions.push({ id: newId, title, startTime, duration: duration || 60,
-          location: row['location'] || row['venue'] || '', notes });
-        imported++;
-      } catch (err) {
-        console.error('Row import failed:', err);
-      }
+      incoming.push({
+        id: uid(), title, startTime,
+        duration: duration || 60,
+        location: row['location'] || row['venue'] || '',
+        notes: {
+          banquets:  row['banquets']  || row['banquet']     || '',
+          av:        row['av']        || row['audio_visual'] || '',
+          speakers:  row['speakers']  || row['speaker']     || '',
+          content:   row['content']                         || '',
+          equipment: row['equipment']                       || '',
+        },
+      });
     }
-    if (imported > 0) {
-      const evtIdx = events.findIndex(ev => ev.id === currentEventId);
-      if (evtIdx !== -1) events[evtIdx]._sessionCount = (events[evtIdx]._sessionCount ?? 0) + imported;
-      render();
-      alert(`Imported ${imported} session${imported !== 1 ? 's' : ''}.`);
-    } else {
+
+    if (!incoming.length) {
       alert('No valid sessions found. Check that your CSV has "title" and "time" columns.');
+      return;
+    }
+
+    const merged = [...sessions, ...incoming];
+    try {
+      await saveSessionsToDB(currentEventId, merged);
+      sessions = merged;
+      const evtIdx = events.findIndex(ev => ev.id === currentEventId);
+      if (evtIdx !== -1) {
+        events[evtIdx].sessions = sessions;
+        events[evtIdx]._sessionCount = sessions.length;
+      }
+      render();
+      alert(`Imported ${incoming.length} session${incoming.length !== 1 ? 's' : ''}.`);
+    } catch (err) {
+      alert('Import failed: ' + (err.message || 'Please try again.'));
     }
   };
   reader.readAsText(file);
@@ -832,23 +919,31 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (action === 'delete') {
       if (!confirm('Delete this session?')) return;
       btn.disabled = true;
+      const prev = [...sessions];
+      sessions = sessions.filter(s => s.id !== id);
       try {
-        await deleteSessionFromDB(id);
-        sessions = sessions.filter(s => s.id !== id);
+        await saveSessionsToDB(currentEventId, sessions);
         const evtIdx = events.findIndex(ev => ev.id === currentEventId);
-        if (evtIdx !== -1) events[evtIdx]._sessionCount = Math.max(0, (events[evtIdx]._sessionCount ?? 1) - 1);
+        if (evtIdx !== -1) {
+          events[evtIdx].sessions = sessions;
+          events[evtIdx]._sessionCount = sessions.length;
+        }
         render();
       } catch {
+        sessions = prev; // restore
+        render();
         alert('Failed to delete session.');
         btn.disabled = false;
       }
     }
   });
 
-  // ── CSV import ────────────────────────────────────────────
+  // ── CSV import / export / PDF export ─────────────────────
   document.getElementById('import-csv-btn').addEventListener('click', () => {
     document.getElementById('csv-file-input').click();
   });
+  document.getElementById('export-csv-btn').addEventListener('click', exportCSV);
+  document.getElementById('export-pdf-btn').addEventListener('click', exportPDF);
   document.getElementById('csv-file-input').addEventListener('change', e => {
     const file = e.target.files[0];
     if (file) { importCSV(file); e.target.value = ''; }
